@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang='ru'>
+<head>
+<meta charset='UTF-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1.0'>
+<title>Редактор базы симулятора дракона</title>
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, sans-serif; background: #15121f; color: #f1ead8; min-height: 100vh; }
+.layout { max-width: 920px; margin: 0 auto; padding: 16px; display: grid; gap: 14px; }
+h1 { margin: 0; font-size: 1.5rem; }
+h2 { margin: 0 0 10px; font-size: 1.1rem; }
+h3 { margin: 0 0 8px; font-size: 1rem; color: #f7d774; }
+.sub { margin: 4px 0 0; color: #bfb49a; font-size: .95rem; }
+.card { background: #201a2e; border: 1px solid #3a3050; border-radius: 12px; padding: 14px; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; }
+.bar button[aria-selected='true'] { background: #9b4a68; }
+button, input, select, textarea { font: inherit; min-height: 44px; border-radius: 8px; border: 1px solid #4a3f66; background: #15121f; color: #f1ead8; padding: 8px 10px; }
+button { background: #7a2e4a; border-color: #9b4a68; cursor: pointer; padding: 8px 14px; }
+button.ghost { background: transparent; border-color: #4a3f66; }
+button.danger { background: #4a1f2c; border-color: #6e3040; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid #f7d774; outline-offset: 2px; }
+textarea { width: 100%; min-height: 300px; font-family: ui-monospace, monospace; font-size: .85rem; }
+.entry { border: 1px solid #3a3050; border-radius: 10px; padding: 10px; background: #15121f; margin-bottom: 10px; }
+.grid { display: grid; gap: 8px; grid-template-columns: 1fr; }
+label { display: grid; gap: 4px; font-size: .88rem; color: #bfb49a; }
+.add { display: grid; gap: 8px; margin-top: 8px; }
+.errors { margin: 0; padding-left: 18px; color: #ff8a8a; }
+.muted { color: #8d8475; font-size: .9rem; margin: 0 0 10px; }
+@media (min-width: 640px) {
+  .grid.items { grid-template-columns: 2fr 2fr 1.2fr 1fr 1fr auto; align-items: end; }
+  .grid.recipes { grid-template-columns: 1fr 1.6fr 1fr 2fr 2fr 1.3fr auto; align-items: end; }
+  .grid.loot { grid-template-columns: 1fr 1fr; }
+  .add { grid-template-columns: 1fr 1.6fr 1fr auto; align-items: end; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<main class='layout'>
+  <header>
+    <h1>Редактор базы</h1>
+    <p class='sub'>Предметы, рецепты и добыча по биомам. Правки сохраняются в этом браузере, а JSON можно скачать.</p>
+  </header>
+  <nav class='card bar' aria-label='Разделы'>
+    <button type='button' data-tab='items' aria-selected='true'>Предметы</button>
+    <button type='button' data-tab='recipes' aria-selected='false'>Рецепты</button>
+    <button type='button' data-tab='loot' aria-selected='false'>Добыча</button>
+    <button type='button' data-tab='json' aria-selected='false'>JSON</button>
+  </nav>
+  <section class='card' id='errorBox' hidden>
+    <h2>Проверка</h2>
+    <ul id='errors' class='errors'></ul>
+  </section>
+  <section class='card' id='view' aria-live='polite'></section>
+</main>
+<script>
+(() => {
+  const KEY = 'dragon-sim-db-v1';
+  const GROUPS = ['Мясо', 'Руды', 'Слитки', 'Материалы'];
+  const STATIONS = ['Печь', 'Верстак'];
+  const BIOMES = [
+    { id: 'mountains', label: 'Горные пики' },
+    { id: 'forest', label: 'Лес' },
+    { id: 'desert', label: 'Пустыня' },
+    { id: 'swamp', label: 'Болото' },
+    { id: 'tundra', label: 'Тундра' },
+    { id: 'caves', label: 'Пещеры' }
+  ];
+  const DEFAULT_DB = {
+    items: [
+      { id: 'mutton_raw', label: 'Сырая баранина', group: 'Мясо', hunger: 15 },
+      { id: 'mutton_cooked', label: 'Жареная баранина', group: 'Мясо', hunger: 40 },
+      { id: 'beef_raw', label: 'Сырая говядина', group: 'Мясо', hunger: 14 },
+      { id: 'beef_cooked', label: 'Стейк', group: 'Мясо', hunger: 42 },
+      { id: 'pork_raw', label: 'Сырая свинина', group: 'Мясо', hunger: 12 },
+      { id: 'pork_cooked', label: 'Жареная свинина', group: 'Мясо', hunger: 32 },
+      { id: 'chicken_raw', label: 'Сырая курица', group: 'Мясо', hunger: 10 },
+      { id: 'chicken_cooked', label: 'Жареная курица', group: 'Мясо', hunger: 24 },
+      { id: 'rotten', label: 'Гнилая плоть', group: 'Мясо', hunger: 15, energy: -10 },
+      { id: 'coal', label: 'Уголь', group: 'Руды' },
+      { id: 'iron_ore', label: 'Железная руда', group: 'Руды' },
+      { id: 'gold_ore', label: 'Золотая руда', group: 'Руды' },
+      { id: 'diamond_ore', label: 'Алмазная руда', group: 'Руды' },
+      { id: 'emerald_ore', label: 'Изумрудная руда', group: 'Руды' },
+      { id: 'iron_ingot', label: 'Железный слиток', group: 'Слитки' },
+      { id: 'gold_ingot', label: 'Золотой слиток', group: 'Слитки' },
+      { id: 'hide', label: 'Шкура', group: 'Материалы' }
+    ],
+    recipes: [
+      { id: 'smelt_iron', station: 'Печь', label: 'Железный слиток', inputs: { iron_ore: 1, coal: 1 }, out: { iron_ingot: 1 } },
+      { id: 'smelt_gold', station: 'Печь', label: 'Золотой слиток', inputs: { gold_ore: 1, coal: 1 }, out: { gold_ingot: 1 } },
+      { id: 'cook_mutton', station: 'Печь', label: 'Жареная баранина', inputs: { mutton_raw: 1, coal: 1 }, out: { mutton_cooked: 1 } },
+      { id: 'cook_beef', station: 'Печь', label: 'Стейк', inputs: { beef_raw: 1, coal: 1 }, out: { beef_cooked: 1 } },
+      { id: 'cook_pork', station: 'Печь', label: 'Жареная свинина', inputs: { pork_raw: 1, coal: 1 }, out: { pork_cooked: 1 } },
+      { id: 'cook_chicken', station: 'Печь', label: 'Жареная курица', inputs: { chicken_raw: 1, coal: 1 }, out: { chicken_cooked: 1 } },
+      { id: 'make_leather', station: 'Верстак', label: 'Кожаное седло', inputs: { hide: 4 }, unlock: 'leather' },
+      { id: 'make_war', station: 'Верстак', label: 'Боевое седло', inputs: { iron_ingot: 4, hide: 2 }, unlock: 'war' },
+      { id: 'make_helmet', station: 'Верстак', label: 'Шлем', inputs: { iron_ingot: 5 }, unlock: 'helmet' },
+      { id: 'make_collar', station: 'Верстак', label: 'Ошейник', inputs: { hide: 2 }, unlock: 'collar' },
+      { id: 'make_blanket', station: 'Верстак', label: 'Попона', inputs: { hide: 3 }, unlock: 'blanket' },
+      { id: 'make_amulet', station: 'Верстак', label: 'Амулет', inputs: { diamond_ore: 1, gold_ingot: 1 }, unlock: 'amulet' },
+      { id: 'make_crown', station: 'Верстак', label: 'Корона', inputs: { gold_ingot: 3, emerald_ore: 1 }, unlock: 'crown' }
+    ],
+    hunt: {
+      forest: [['chicken_raw', 40], ['mutton_raw', 40], ['pork_raw', 20]],
+      mountains: [['mutton_raw', 50], ['pork_raw', 50]],
+      desert: [['beef_raw', 60], ['chicken_raw', 40]],
+      swamp: [['rotten', 60], ['pork_raw', 40]],
+      tundra: [['mutton_raw', 60], ['beef_raw', 40]],
+      caves: [['rotten', 50], ['beef_raw', 50]]
+    },
+    mine: {
+      mountains: [['coal', 35], ['iron_ore', 35], ['gold_ore', 15], ['diamond_ore', 8], ['emerald_ore', 7]],
+      caves: [['coal', 25], ['iron_ore', 30], ['gold_ore', 20], ['diamond_ore', 15], ['emerald_ore', 10]],
+      desert: [['coal', 40], ['iron_ore', 30], ['gold_ore', 30]],
+      swamp: [['coal', 70], ['iron_ore', 30]],
+      forest: [['coal', 80], ['iron_ore', 20]],
+      tundra: [['coal', 60], ['iron_ore', 40]]
+    }
+  };
+
+  const view = document.getElementById('view');
+  const errBox = document.getElementById('errorBox');
+  const errList = document.getElementById('errors');
+  let tab = 'items';
+  let db = load();
+
+  function clone(x) { return JSON.parse(JSON.stringify(x)); }
+
+  function isDb(p) {
+    return !!p && Array.isArray(p.items) && Array.isArray(p.recipes) &&
+      !!p.hunt && typeof p.hunt === 'object' && !!p.mine && typeof p.mine === 'object';
+  }
+
+  function load() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(KEY) || 'null');
+      if (isDb(parsed)) return parsed;
+    } catch (e) {}
+    return clone(DEFAULT_DB);
+  }
+
+  function el(tag, attrs = {}, children = []) {
+    const node = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === 'text') node.textContent = v;
+      else if (k === 'on') { for (const [ev, fn] of Object.entries(v)) node.addEventListener(ev, fn); }
+      else if (k === 'selected') node.selected = v;
+      else node.setAttribute(k, v);
+    }
+    node.append(...children);
+    return node;
+  }
+
+  function field(caption, control) {
+    return el('label', {}, [el('span', { text: caption }), control]);
+  }
+
+  function button(text, onClick, cls) {
+    return el('button', { type: 'button', text, class: cls || '', on: { click: onClick } });
+  }
+
+  function textInput(value, onChange, placeholder) {
+    return el('input', { type: 'text', value, placeholder: placeholder || '', on: { change: e => onChange(e.target.value.trim()) } });
+  }
+
+  function numInput(value, onChange) {
+    return el('input', {
+      type: 'number', step: '1', value: value === undefined ? '' : String(value),
+      on: { change: e => onChange(e.target.value === '' ? undefined : Number(e.target.value)) }
+    });
+  }
+
+  function select(options, value, onChange) {
+    return el('select', { on: { change: e => onChange(e.target.value) } },
+      options.map(o => el('option', { value: o, text: o, selected: o === value })));
+  }
+
+  function setOpt(obj, key, value) {
+    if (value === undefined || value === '') delete obj[key];
+    else obj[key] = value;
+  }
+
+  function parsePairs(text) {
+    const pairs = [];
+    const bad = [];
+    text.split(',').map(s => s.trim()).filter(Boolean).forEach(part => {
+      const [id, num] = part.split(':').map(s => (s || '').trim());
+      const n = Number(num);
+      if (!id || !Number.isInteger(n) || n < 1) bad.push(part);
+      else pairs.push([id, n]);
+    });
+    return { pairs, bad };
+  }
+
+  function readPairs(text, where) {
+    const p = parsePairs(text);
+    if (p.bad.length) {
+      setErrors([where + ': не разобрано «' + p.bad.join(', ') + '». Формат: id:число, id:число']);
+      return null;
+    }
+    return p.pairs;
+  }
+
+  function toText(pairs) {
+    return pairs.map(([id, n]) => id + ':' + n).join(', ');
+  }
+
+  function validate(d) {
+    const msgs = [];
+    const idPattern = /^[a-z][a-z0-9_]*$/;
+    const itemIds = new Set();
+    d.items.forEach(it => {
+      if (!idPattern.test(it.id || '')) msgs.push('Предмет «' + it.id + '»: id из строчных латинских букв, цифр и _');
+      else if (itemIds.has(it.id)) msgs.push('Повторяется id предмета: ' + it.id);
+      itemIds.add(it.id);
+      if (!(it.label || '').trim()) msgs.push('У предмета ' + it.id + ' пустое название');
+      if (!GROUPS.includes(it.group)) msgs.push('У предмета ' + it.id + ' неизвестная группа');
+    });
+    const recipeIds = new Set();
+    d.recipes.forEach(r => {
+      const name = r.label || r.id || '?';
+      if (!idPattern.test(r.id || '')) msgs.push('Рецепт «' + name + '»: id из строчных латинских букв, цифр и _');
+      else if (recipeIds.has(r.id)) msgs.push('Повторяется id рецепта: ' + r.id);
+      recipeIds.add(r.id);
+      if (!(r.label || '').trim()) msgs.push('Рецепт ' + r.id + ' без названия');
+      if (!STATIONS.includes(r.station)) msgs.push('Рецепт «' + name + '»: неизвестное место крафта');
+      const inputs = Object.keys(r.inputs || {});
+      if (!inputs.length) msgs.push('В рецепте «' + name + '» нет ингредиентов');
+      [...inputs, ...Object.keys(r.out || {})].forEach(id => {
+        if (!itemIds.has(id)) msgs.push('В рецепте «' + name + '» нет предмета ' + id);
+      });
+    });
+    BIOMES.forEach(b => {
+      [['охота', d.hunt[b.id]], ['добыча руды', d.mine[b.id]]].forEach(([title, list]) => {
+        (list || []).forEach(([id, w]) => {
+          if (!itemIds.has(id)) msgs.push(b.label + ', ' + title + ': нет предмета ' + id);
+          if (!Number.isInteger(w) || w < 1) msgs.push(b.label + ', ' + title + ': вес ' + id + ' должен быть целым от 1');
+        });
+      });
+    });
+    return msgs;
+  }
+
+  function setErrors(list) {
+    errList.replaceChildren(...list.map(t => el('li', { text: t })));
+    errBox.hidden = list.length === 0;
+  }
+
+  function commit() {
+    try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) {}
+    render();
+  }
+
+  function renderItems() {
+    const rows = db.items.map((it, i) => el('div', { class: 'entry' }, [
+      el('div', { class: 'grid items' }, [
+        field('id', textInput(it.id, v => { it.id = v; commit(); })),
+        field('Название', textInput(it.label, v => { it.label = v; commit(); })),
+        field('Группа', select(GROUPS, it.group, v => { it.group = v; commit(); })),
+        field('Сытость', numInput(it.hunger, v => { setOpt(it, 'hunger', v); commit(); })),
+        field('Силы', numInput(it.energy, v => { setOpt(it, 'energy', v); commit(); })),
+        button('Удалить', () => { db.items.splice(i, 1); commit(); }, 'danger')
+      ])
+    ]));
+    const idIn = el('input', { type: 'text', placeholder: 'например deer_raw' });
+    const nameIn = el('input', { type: 'text', placeholder: 'Название' });
+    const groupSel = select(GROUPS, GROUPS[0], () => {});
+    const add = el('div', { class: 'add' }, [
+      field('Новый id', idIn),
+      field('Название', nameIn),
+      field('Группа', groupSel),
+      button('Добавить предмет', () => {
+        const id = idIn.value.trim();
+        const label = nameIn.value.trim();
+        if (!id || !label) { setErrors(['Для нового предмета нужны id и название.']); return; }
+        db.items.push({ id, label, group: groupSel.value });
+        commit();
+      })
+    ]);
+    return el('div', {}, [el('h2', { text: 'Предметы (' + db.items.length + ')' }), ...rows, add]);
+  }
+
+  function renderRecipes() {
+    const rows = db.recipes.map((r, i) => el('div', { class: 'entry' }, [
+      el('div', { class: 'grid recipes' }, [
+        field('id', textInput(r.id, v => { r.id = v; commit(); })),
+        field('Название', textInput(r.label, v => { r.label = v; commit(); })),
+        field('Где', select(STATIONS, r.station, v => { r.station = v; commit(); })),
+        field('Ингредиенты', textInput(toText(Object.entries(r.inputs || {})), v => {
+          const pairs = readPairs(v, 'Рецепт «' + r.label + '», ингредиенты');
+          if (!pairs) return;
+          r.inputs = Object.fromEntries(pairs);
+          commit();
+        }, 'iron_ore:1, coal:1')),
+        field('Результат', textInput(toText(Object.entries(r.out || {})), v => {
+          const pairs = readPairs(v, 'Рецепт «' + r.label + '», результат');
+          if (!pairs) return;
+          setOpt(r, 'out', pairs.length ? Object.fromEntries(pairs) : undefined);
+          commit();
+        }, 'iron_ingot:1')),
+        field('Открывает', textInput(r.unlock || '', v => { setOpt(r, 'unlock', v); commit(); }, 'например helmet')),
+        button('Удалить', () => { db.recipes.splice(i, 1); commit(); }, 'danger')
+      ])
+    ]));
+    const idIn = el('input', { type: 'text', placeholder: 'например smelt_deer' });
+    const nameIn = el('input', { type: 'text', placeholder: 'Название' });
+    const stationSel = select(STATIONS, STATIONS[0], () => {});
+    const add = el('div', { class: 'add' }, [
+      field('Новый id', idIn),
+      field('Название', nameIn),
+      field('Где', stationSel),
+      button('Добавить рецепт', () => {
+        const id = idIn.value.trim();
+        const label = nameIn.value.trim();
+        if (!id || !label) { setErrors(['Для рецепта нужны id и название.']); return; }
+        db.recipes.push({ id, station: stationSel.value, label, inputs: {} });
+        commit();
+      })
+    ]);
+    return el('div', {}, [el('h2', { text: 'Рецепты (' + db.recipes.length + ')' }), ...rows, add]);
+  }
+
+  function renderLoot() {
+    const sections = BIOMES.map(b => el('div', { class: 'entry' }, [
+      el('h3', { text: b.label }),
+      el('div', { class: 'grid loot' }, [
+        field('Охота (мясо)', textInput(toText(db.hunt[b.id] || []), v => {
+          const pairs = readPairs(v, b.label + ', охота');
+          if (!pairs) return;
+          db.hunt[b.id] = pairs;
+          commit();
+        }, 'mutton_raw:50, pork_raw:50')),
+        field('Добыча руды', textInput(toText(db.mine[b.id] || []), v => {
+          const pairs = readPairs(v, b.label + ', добыча');
+          if (!pairs) return;
+          db.mine[b.id] = pairs;
+          commit();
+        }, 'coal:35, iron_ore:35'))
+      ])
+    ]));
+    return el('div', {}, [
+      el('h2', { text: 'Добыча по биомам' }),
+      el('p', { class: 'muted', text: 'Формат: id:вес через запятую. Вес — целое число от 1, чем он больше, тем чаще выпадает.' }),
+      ...sections
+    ]);
+  }
+
+  function renderJson() {
+    const ta = el('textarea', { spellcheck: 'false', 'aria-label': 'JSON базы' });
+    ta.value = JSON.stringify(db, null, 2);
+    const apply = button('Применить JSON', () => {
+      let parsed;
+      try { parsed = JSON.parse(ta.value); } catch (e) { setErrors(['JSON не читается: ' + e.message]); return; }
+      if (!isDb(parsed)) { setErrors(['В JSON нет разделов items, recipes, hunt и mine.']); return; }
+      db = parsed;
+      commit();
+    });
+    const copy = button('Скопировать', async () => {
+      try {
+        await navigator.clipboard.writeText(JSON.stringify(db, null, 2));
+      } catch (e) {
+        setErrors(['Не получилось скопировать. Выдели текст вручную.']);
+      }
+    }, 'ghost');
+    const download = button('Скачать JSON', () => {
+      const blob = new Blob([JSON.stringify(db, null, 2)], { type: 'application/json' });
+      const a = el('a', { href: URL.createObjectURL(blob), download: 'dragon-sim-db.json' });
+      document.body.append(a);
+      a.click();
+      a.remove();
+    }, 'ghost');
+    const reset = button('Сбросить к исходным', () => {
+      if (!confirm('Сбросить базу к исходным данным?')) return;
+      db = clone(DEFAULT_DB);
+      commit();
+    }, 'danger');
+    return el('div', {}, [
+      el('h2', { text: 'JSON базы' }),
+      ta,
+      el('div', { class: 'bar' }, [apply, copy, download, reset])
+    ]);
+  }
+
+  function render() {
+    setErrors(validate(db));
+    document.querySelectorAll('[data-tab]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
+    const content = tab === 'items' ? renderItems()
+      : tab === 'recipes' ? renderRecipes()
+      : tab === 'loot' ? renderLoot()
+      : renderJson();
+    view.replaceChildren(content);
+  }
+
+  document.querySelector('nav').addEventListener('click', e => {
+    const b = e.target.closest('[data-tab]');
+    if (!b) return;
+    tab = b.dataset.tab;
+    render();
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
