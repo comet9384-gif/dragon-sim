@@ -1,1 +1,350 @@
-{{FILE_CONTENT_PLACEHOLDER}}
+<!DOCTYPE html>
+<html lang='ru'>
+<head>
+<meta charset='UTF-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1.0'>
+<title>Симулятор дракона</title>
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, sans-serif; background: #15121f; color: #f1ead8; min-height: 100vh; }
+.layout { max-width: 560px; margin: 0 auto; padding: 16px; display: grid; gap: 14px; }
+h1 { margin: 0; font-size: 1.5rem; }
+h2 { margin: 0 0 12px; font-size: 1.1rem; }
+.sub { margin: 4px 0 0; color: #bfb49a; font-size: .95rem; }
+.card { background: #201a2e; border: 1px solid #3a3050; border-radius: 12px; padding: 14px; }
+.stage { display: grid; justify-items: center; gap: 8px; }
+.stage svg { width: 100%; max-width: 300px; height: auto; }
+.caption { margin: 0; text-align: center; color: #bfb49a; font-size: .95rem; min-height: 1.4em; }
+fieldset { border: 0; padding: 0; margin: 0 0 12px; display: grid; gap: 8px; }
+legend { font-size: .9rem; color: #bfb49a; margin-bottom: 6px; padding: 0; }
+.options { display: flex; flex-wrap: wrap; gap: 8px; }
+.options label { display: inline-flex; align-items: center; gap: 6px; background: #15121f; border: 1px solid #4a3f66; border-radius: 8px; padding: 8px 10px; min-height: 44px; cursor: pointer; }
+.options label:has(input:disabled) { opacity: .5; cursor: default; }
+.options input { width: 18px; height: 18px; margin: 0; accent-color: #f7d774; }
+.options label:has(input:focus-visible) { outline: 3px solid #f7d774; outline-offset: 2px; }
+.bars { display: grid; gap: 12px; }
+.bar-head { display: flex; justify-content: space-between; font-size: .9rem; color: #bfb49a; margin-bottom: 4px; }
+.track { height: 12px; background: #15121f; border-radius: 999px; overflow: hidden; border: 1px solid #3a3050; }
+.track i { display: block; height: 100%; background: #f7d774; width: 0; transition: width .4s ease; }
+.info { margin: 12px 0 0; color: #bfb49a; font-size: .95rem; }
+label.field { display: grid; gap: 6px; font-size: .95rem; margin-bottom: 12px; }
+select, input, button { font: inherit; min-height: 44px; border-radius: 8px; border: 1px solid #4a3f66; background: #15121f; color: #f1ead8; padding: 8px 10px; }
+button { background: #7a2e4a; border-color: #9b4a68; cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }
+button.ghost { background: transparent; border-color: #4a3f66; }
+button.small { min-height: 36px; padding: 4px 12px; white-space: nowrap; }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid #f7d774; outline-offset: 2px; }
+.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.msg { margin: 10px 0 0; min-height: 1.4em; }
+.error { color: #ff8a8a; }
+.muted { color: #8d8475; font-size: .9rem; }
+.list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.list li { background: #15121f; border: 1px solid #3a3050; border-radius: 10px; padding: 10px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.list li > div { min-width: 0; }
+.eat-row { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; margin-top: 12px; }
+.eat-row label.field { flex: 1 1 200px; margin: 0; }
+.note-form { display: grid; gap: 10px; margin-bottom: 12px; }
+.log { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; max-height: 360px; overflow-y: auto; }
+.log li { background: #15121f; border: 1px solid #3a3050; border-radius: 10px; padding: 10px; }
+.log time { display: block; color: #8d8475; font-size: .8rem; margin-bottom: 2px; }
+@media (min-width: 480px) { .note-form { grid-template-columns: 1fr auto; align-items: end; } }
+@media (prefers-reduced-motion: reduce) { .track i { transition: none; } }
+a { color: #f7d774; }
+</style>
+</head>
+<body>
+<main class='layout'>
+  <header>
+    <h1>Симулятор дракона</h1>
+    <p class='sub'>Охота, добыча руд, крафт и логово. Всё сохраняется в этом браузере. Базу предметов можно править в <a href='editor.html'>редакторе базы</a>.</p>
+  </header>
+
+  <section class='card stage'>
+    <svg id='dragon' viewBox='0 0 300 220' role='img' aria-label='Дракон'></svg>
+    <p id='caption' class='caption'></p>
+  </section>
+
+  <section class='card'>
+    <h2>Облик</h2>
+    <div id='customs'></div>
+    <p class='info'>Седла и аксессары открываются крафтом в верстаке. Колер, чешуя и крылья доступны всегда.</p>
+  </section>
+
+  <section class='card'>
+    <h2>Состояние</h2>
+    <div id='bars' class='bars' aria-live='polite'></div>
+    <p id='best' class='info'></p>
+  </section>
+
+  <section class='card'>
+    <h2>Действия</h2>
+    <label class='field'>Биом
+      <select id='biome'></select>
+    </label>
+    <div class='actions'>
+      <button type='button' data-act='hunt'>Поохотаться</button>
+      <button type='button' data-act='mine'>Копать руду</button>
+      <button type='button' data-act='fly'>Полететь</button>
+      <button type='button' data-act='rest'>Отдохнуться</button>
+    </div>
+    <p id='msg' class='msg' role='status'></p>
+  </section>
+
+  <section class='card'>
+    <h2>Инвентарь</h2>
+    <ul id='inv' class='list'></ul>
+    <p id='invEmpty' class='muted' hidden>Пусто. Поохотась или копать руду.</p>
+    <div class='eat-row'>
+      <label class='field'>Еда
+        <select id='food'></select>
+      </label>
+      <button type='button' id='eatBtn'>Съесть</button>
+    </div>
+  </section>
+
+  <section class='card'>
+    <h2>Крафт</h2>
+    <p class='muted'>Печь готовит слитки и жарит мясо за уголь. Верстак делает снаряжение.</p>
+    <ul id='recipes' class='list'></ul>
+  </section>
+
+  <section class='card'>
+    <h2>Журнал логова</h2>
+    <form id='noteForm' class='note-form'>
+      <label class='field'>Заметка
+        <input id='noteText' type='text' maxlength='200' placeholder='Что произошло'>
+      </label>
+      <button type='submit'>Записать</button>
+    </form>
+    <ul id='log' class='log'></ul>
+    <p id='empty' class='muted' hidden>Записей пока нет.</p>
+    <button id='clearLog' type='button' class='ghost'>Очистить журнал</button>
+  </section>
+  <section class='card'>
+    <h2>База данных</h2>
+    <p class='muted'>Загрузи предметы, рецепты и добычу из редактора или из файла JSON. Открыть <a href='editor.html'>редактор базы</a>.</p>
+    <div class='bar' style='margin-bottom:10px'>
+      <button type='button' id='loadDbBtn'>Загрузить из редактора</button>
+      <button type='button' id='loadFileBtn'>Загрузить из файла JSON</button>
+    </div>
+    <input type='file' id='dbFile' accept='.json' hidden>
+    <p id='dbMsg' class='msg' role='status'></p>
+  </section>
+
+</main>
+
+<script>
+(() => {
+  const KEY = 'dragon-sim-v2';
+  const BIOMES = [
+    { id: 'mountains', label: 'Горные пики' },
+    { id: 'forest', label: 'Лес' },
+    { id: 'desert', label: 'Пустыня' },
+    { id: 'swamp', label: 'Болото' },
+    { id: 'tundra', label: 'Тундра' },
+    { id: 'caves', label: 'Пещеры' }
+  ];
+  const COLORS = [
+    { id: 'emerald', label: 'Изумрудный', main: '#2e8b57', dark: '#1b5e3b' },
+    { id: 'ruby', label: 'Рубиновый', main: '#b22234', dark: '#6e1220' },
+    { id: 'sapphire', label: 'Сапфировый', main: '#2456a6', dark: '#15336b' },
+    { id: 'gold', label: 'Золотой', main: '#d4a017', dark: '#8a6410' },
+    { id: 'obsidian', label: 'Обсидиановый', main: '#4a5061', dark: '#22252e' }
+  ];
+  const SCALES = [
+    { id: 'fine', label: 'Мелкая' },
+    { id: 'plate', label: 'Пластинчатая' },
+    { id: 'spike', label: 'Шипы' }
+  ];
+  const WINGS = [
+    { id: 'bat', label: 'Перепончатые' },
+    { id: 'feather', label: 'Перьевые' },
+    { id: 'stub', label: 'Короткие' }
+  ];
+  const SADDLES = [
+    { id: 'none', label: 'Без седла' },
+    { id: 'leather', label: 'Кожанное', main: '#8b5a2b', dark: '#5a3a1a' },
+    { id: 'war', label: 'Боевое', main: '#5c6370', dark: '#2f333b' }
+  ];
+  const ACCESSORIES = [
+    { id: 'crown', label: 'Корона' },
+    { id: 'collar', label: 'Ошейник' },
+    { id: 'amulet', label: 'Амулет' },
+    { id: 'helmet', label: 'Шлем' },
+    { id: 'blanket', label: 'Попона' }
+  ];
+  let ITEMS = {
+    mutton_raw: { label: 'Сырая баранина', group: 'Мясо', hunger: 15 },
+    mutton_cooked: { label: 'Жареная баранина', group: 'Мясо', hunger: 40 },
+    beef_raw: { label: 'Сырая говядина', group: 'Мясо', hunger: 14 },
+    beef_cooked: { label: 'Стейк', group: 'Мясо', hunger: 42 },
+    pork_raw: { label: 'Сырая свинина', group: 'Мясо', hunger: 12 },
+    pork_cooked: { label: 'Жареная свинина', group: 'Мясо', hunger: 32 },
+    chicken_raw: { label: 'Сырая курица', group: 'Мясо', hunger: 10 },
+    chicken_cooked: { label: 'Жареная курица', group: 'Мясо', hunger: 24 },
+    rotten: { label: 'Гнилая плоть', group: 'Мясо', hunger: 15, energy: -10 },
+    coal: { label: 'Уголь', group: 'Руды' },
+    iron_ore: { label: 'Железная руда', group: 'Руды' },
+    gold_ore: { label: 'Золотая руда', group: 'Руды' },
+    diamond_ore: { label: 'Алмазная руда', group: 'Руды' },
+    emerald_ore: { label: 'Изумрудная руда', group: 'Руды' },
+    iron_ingot: { label: 'Железный слиток', group: 'Слитки' },
+    gold_ingot: { label: 'Золотой слиток', group: 'Слитки' },
+    hide: { label: 'Шкура', group: 'Материалы' }
+  };
+  const GROUPS = ['Мясо', 'Руды', 'Слитки', 'Материалы'];
+  let RECIPES = [
+    { id: 'smelt_iron', station: 'Печь', label: 'Железный слиток', inputs: { iron_ore: 1, coal: 1 }, out: { iron_ingot: 1 } },
+    { id: 'smelt_gold', station: 'Печь', label: 'Золотой слиток', inputs: { gold_ore: 1, coal: 1 }, out: { gold_ingot: 1 } },
+    { id: 'cook_mutton', station: 'Печь', label: 'Жареная баранина', inputs: { mutton_raw: 1, coal: 1 }, out: { mutton_cooked: 1 } },
+    { id: 'cook_beef', station: 'Печь', label: 'Стейк', inputs: { beef_raw: 1, coal: 1 }, out: { beef_cooked: 1 } },
+    { id: 'cook_pork', station: 'Печь', label: 'Жареная свинина', inputs: { pork_raw: 1, coal: 1 }, out: { pork_cooked: 1 } },
+    { id: 'cook_chicken', station: 'Печь', label: 'Жареная курица', inputs: { chicken_raw: 1, coal: 1 }, out: { chicken_cooked: 1 } },
+    { id: 'make_leather', station: 'Верстак', label: 'Кожанное седло', inputs: { hide: 4 }, unlock: 'leather' },
+    { id: 'make_war', station: 'Верстак', label: 'Боевое седло', inputs: { iron_ingot: 4, hide: 2 }, unlock: 'war' },
+    { id: 'make_helmet', station: 'Верстак', label: 'Шлем', inputs: { iron_ingot: 5 }, unlock: 'helmet' },
+    { id: 'make_collar', station: 'Верстак', label: 'Ошейник', inputs: { hide: 2 }, unlock: 'collar' },
+    { id: 'make_blanket', station: 'Верстак', label: 'Попона', inputs: { hide: 3 }, unlock: 'blanket' },
+    { id: 'make_amulet', station: 'Верстак', label: 'Амулет', inputs: { diamond_ore: 1, gold_ingot: 1 }, unlock: 'amulet' },
+    { id: 'make_crown', station: 'Верстак', label: 'Корона', inputs: { gold_ingot: 3, emerald_ore: 1 }, unlock: 'crown' }
+  ];
+  let HUNT = {
+    forest: [['chicken_raw', 40], ['mutton_raw', 40], ['pork_raw', 20]],
+    mountains: [['mutton_raw', 50], ['pork_raw', 50]],
+    desert: [['beef_raw', 60], ['chicken_raw', 40]],
+    swamp: [['rotten', 60], ['pork_raw', 40]],
+    tundra: [['mutton_raw', 60], ['beef_raw', 40]],
+    caves: [['rotten', 50], ['beef_raw', 50]]
+  };
+  let MINE = {
+    mountains: [['coal', 35], ['iron_ore', 35], ['gold_ore', 15], ['diamond_ore', 8], ['emerald_ore', 7]],
+    caves: [['coal', 25], ['iron_ore', 30], ['gold_ore', 20], ['diamond_ore', 15], ['emerald_ore', 10]],
+    desert: [['coal', 40], ['iron_ore', 30], ['gold_ore', 30]],
+    swamp: [['coal', 70], ['iron_ore', 30]],
+    forest: [['coal', 80], ['iron_ore', 20]],
+    tundra: [['coal', 60], ['iron_ore', 40]]
+  };
+  const DECAY = { hunger: 1.2, energy: 0.8 };
+  const clamp = v => Math.max(0, Math.min(100, v));
+  const $ = id => document.getElementById(id);
+  const els = {
+    svg: $('dragon'), caption: $('caption'), customs: $('customs'), bars: $('bars'), best: $('best'),
+    biome: $('biome'), msg: $('msg'), inv: $('inv'), invEmpty: $('invEmpty'), food: $('food'), eatBtn: $('eatBtn'),
+    recipes: $('recipes'), log: $('log'), empty: $('empty'), noteForm: $('noteForm'), noteText: $('noteText'), clearLog: $('clearLog')
+  };
+
+  function fresh() {
+    return {
+      color: 'emerald', scale: 'fine', wing: 'bat', saddle: 'none', accessories: [], owned: [],
+      hunger: 70, energy: 80, tick: Date.now(), inv: {}, best: 0, log: []
+    };
+  }
+
+  function load() {
+    const base = fresh();
+    try {
+      const p = JSON.parse(localStorage.getItem(KEY) || 'null');
+      if (p && typeof p === 'object') {
+        const s = { ...base, ...p };
+        s.inv = {};
+        for (const [k, v] of Object.entries(p.inv || {})) if (ITEMS[k] && v > 0) s.inv[k] = v;
+        s.owned = Array.isArray(p.owned) ? p.owned.filter(x => typeof x === 'string') : [];
+        s.accessories = (Array.isArray(p.accessories) ? p.accessories : []).filter(a => s.owned.includes(a));
+        if (s.saddle !== 'none' && !s.owned.includes(s.saddle)) s.saddle = 'none';
+        s.log = Array.isArray(p.log) ? p.log : [];
+        return s;
+      }
+    } catch (err) {}
+    return base;
+  }
+
+  let state = load();
+  let saveError = false;
+
+  function save() {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(state));
+      saveError = false;
+    } catch (err) {
+      saveError = true;
+    }
+  }
+
+  function applyDecay() {
+    const now = Date.now();
+    const minutes = Math.max(0, (now - state.tick) / 60000);
+    state.hunger = clamp(state.hunger - DECAY.hunger * minutes);
+    state.energy = clamp(state.energy - DECAY.energy * minutes);
+    state.tick = now;
+  }
+
+  function count(id) { return state.inv[id] || 0; }
+  function add(id, n = 1) { state.inv[id] = count(id) + n; }
+  function take(id, n = 1) {
+    state.inv[id] = count(id) - n;
+    if (state.inv[id] <= 0) delete state.inv[id];
+  }
+  function pick(table) {
+    const total = table.reduce((s, [, w]) => s + w, 0);
+    let r = Math.random() * total;
+    for (const [id, w] of table) {
+      r -= w;
+      if (r < 0) return id;
+    }
+    return table[table.length - 1][0];
+  }
+  function label(id) { return ITEMS[id] ? ITEMS[id].label : id; }
+  function biomeLabel(id) {
+    const b = BIOMES.find(x => x.id === id);
+    return b ? b.label : id;
+  }
+  function loadDB() {
+    let raw;
+    try { raw = localStorage.getItem('dragon-sim-db-v1'); } catch (e) { return 'Ошибка чтения хранилища.'; }
+    if (!raw) return 'База редактора пуста. Сначала отредактируй базу в editor.html.';
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch (e) { return 'JSON базы не читается: ' + e.message; }
+    if (!parsed || !Array.isArray(parsed.items) || !Array.isArray(parsed.recipes) || !parsed.hunt || !parsed.mine) {
+      return 'Формат базы не подходит: нужны разделы items, recipes, hunt и mine.';
+    }
+    ITEMS = {};
+    parsed.items.forEach(it => {
+      if (it.id && it.label) ITEMS[it.id] = { label: it.label, group: it.group || 'Материалы', hunger: it.hunger, energy: it.energy };
+    });
+    RECIPES = parsed.recipes.map(r => ({
+      id: r.id || r.label,
+      station: r.station || 'Печь',
+      label: r.label || r.id,
+      inputs: r.inputs || {},
+      out: r.out || undefined,
+      unlock: r.unlock || undefined
+    })).filter(r => r.id && r.label);
+    HUNT = {};
+    parsed.hunt.forEach((list, bi) => { if (Array.isArray(list)) HUNT[bi] = list; });
+    MINE = {};
+    parsed.mine.forEach((list, bi) => { if (Array.isArray(list)) MINE[bi] = list; });
+    const allBiomes = new Set([...Object.keys(HUNT), ...Object.keys(MINE)]);
+    allBiomes.forEach(b => { if (!BIOMES.find(x => x.id === b)) BIOMES.push({ id: b, label: b }); });
+    const inv = {};
+    for (const [k, v] of Object.entries(state.inv || {})) if (ITEMS[k] && v > 0) inv[k] = v;
+    state.inv = inv;
+    state.owned = (state.owned || []).filter(id => RECIPES.some(r => r.unlock === id));
+    state.accessories = (state.accessories || []).filter(a => state.owned.includes(a));
+    if (state.saddle !== 'none' && !state.owned.includes(state.saddle)) state.saddle = 'none';
+    return 'База загружена: ' + parsed.items.length + ' предметов, ' + parsed.recipes.length + ' рецептов.';
+  }
+
+  function addLog(text) {
+    state.log.unshift({ t: Date.now(), text });
+    if (state.log.length > 200) state.log.length = 200;
+  }
+  function canCraft(r) {
+    if (r.unlock && state.owned.includes(r.unlock)) return false;
+    return Object.entries(r.inputs).every(([k, n]) => count(k) >= n);
+  }
+  function craft(r) {
+    if (!canCraft(r)) return null;
+    for (const [k, n] of Object.entries(r.inputs)) take(k, n);
+    if (r.out) for (const [k, n] of Object.entries(r.out)) add(k, n);
+    if (r.unlock) state.owned.push(r.unlock);
+    return `Готово: ${r.label.toLowe
