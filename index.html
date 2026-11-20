@@ -82,7 +82,7 @@ a { color: #f7d774; }
       <select id='biome'></select>
     </label>
     <div class='actions'>
-      <button type='button' data-act='hunt'>Поохотаться</button>
+      <button type='button' data-act='hunt'>Похотаться</button>
       <button type='button' data-act='mine'>Копать руду</button>
       <button type='button' data-act='fly'>Полететь</button>
       <button type='button' data-act='rest'>Отдохнуться</button>
@@ -93,7 +93,7 @@ a { color: #f7d774; }
   <section class='card'>
     <h2>Инвентарь</h2>
     <ul id='inv' class='list'></ul>
-    <p id='invEmpty' class='muted' hidden>Пусто. Поохотась или копать руду.</p>
+    <p id='invEmpty' class='muted' hidden>Пусто. Похотась или копать руду.</p>
     <div class='eat-row'>
       <label class='field'>Еда
         <select id='food'></select>
@@ -301,7 +301,7 @@ a { color: #f7d774; }
   function loadDB() {
     let raw;
     try { raw = localStorage.getItem('dragon-sim-db-v1'); } catch (e) { return 'Ошибка чтения хранилища.'; }
-    if (!raw) return 'База редактора пуста. Сначала отредактируй базу в editor.html.';
+    if (!raw) return 'База редактора пуста. Сначала отредактируйте базу в editor.html.';
     let parsed;
     try { parsed = JSON.parse(raw); } catch (e) { return 'JSON базы не читается: ' + e.message; }
     if (!parsed || !Array.isArray(parsed.items) || !Array.isArray(parsed.recipes) || !parsed.hunt || !parsed.mine) {
@@ -347,4 +347,385 @@ a { color: #f7d774; }
     for (const [k, n] of Object.entries(r.inputs)) take(k, n);
     if (r.out) for (const [k, n] of Object.entries(r.out)) add(k, n);
     if (r.unlock) state.owned.push(r.unlock);
-    return `Готово: ${r.label.toLowe
+    return `Готово: ${r.label.toLocaleLowerCase()}.`;
+  }
+
+  const ACTS = {
+    hunt() {
+      const b = els.biome.value;
+      const id = pick(HUNT[b]);
+      add(id);
+      let extra = '';
+      if (Math.random() < 0.5) { add('hide'); extra = ' и шкура'; }
+      state.energy -= 15;
+      state.hunger -= 10;
+      return `Охота в биоме “${biomeLabel(b)}”: ${label(id)}${extra}.`;
+    },
+    mine() {
+      const b = els.biome.value;
+      const id = pick(MINE[b]);
+      add(id);
+      state.energy -= 12;
+      state.hunger -= 6;
+      return `Добыча в биоме “${biomeLabel(b)}”: ${label(id)}.`;
+    },
+    fly() {
+      const b = els.biome.value;
+      const height = 10 + Math.floor(Math.random() * 110);
+      state.energy -= 20;
+      state.hunger -= 5;
+      const record = height > state.best;
+      if (record) state.best = height;
+      return `Полет над “${biomeLabel(b)}” на ${height} блоков${record ? ', новый рекорд высоты' : ''}.`;
+    },
+    rest() {
+      state.energy += 40;
+      state.hunger -= 5;
+      return 'Дракон отдохнует в логове.';
+    },
+    eat() {
+      const id = els.food.value;
+      if (!id || count(id) < 1) return null;
+      take(id);
+      const f = ITEMS[id];
+      state.hunger += f.hunger || 0;
+      state.energy += f.energy || 0;
+      return `Дракон сел: ${label(id)}.`;
+    }
+  };
+
+  function commit(fn) {
+    applyDecay();
+    const result = fn();
+    state.hunger = clamp(state.hunger);
+    state.energy = clamp(state.energy);
+    save();
+    renderAll();
+    return result;
+  }
+
+  function setMessage(text, isError) {
+    els.msg.className = isError ? 'msg error' : 'msg';
+    els.msg.textContent = saveError ? text + ' Браузер не даёт сохранить состояние.' : text;
+  }
+
+  function buildSpikes(dark) {
+    let out = '';
+    for (let x = 98; x <= 178; x += 16) out += `<path d='M${x} 110 L${x + 8} 84 L${x + 16} 110 Z' fill='${dark}'/>`;
+    return out;
+  }
+
+  function buildSaddle(saddle) {
+    if (saddle.id === 'none') return '';
+    const trim = saddle.id === 'war' ? `<path d='M104 110 Q150 92 196 108' fill='none' stroke='#d4a017' stroke-width='3'/>` : '';
+    return `<path d='M100 106 Q150 84 200 102 L194 118 Q150 104 106 118 Z' fill='${saddle.main}' stroke='${saddle.dark}' stroke-width='2'/>${trim}<path d='M150 112 L150 130' stroke='${saddle.dark}' stroke-width='4' stroke-linecap='round'/>`;
+  }
+
+  function buildAccessories(ids) {
+    let out = '';
+    if (ids.includes('collar')) out += `<path d='M198 90 Q218 104 236 96' fill='none' stroke='#2b2b2b' stroke-width='7' stroke-linecap='round'/><circle cx='208' cy='98' r='2.5' fill='#f7d774'/><circle cx='222' cy='101' r='2.5' fill='#f7d774'/> `;
+    if (ids.includes('amulet')) out += `<path d='M216 100 Q212 116 210 126' fill='none' stroke='#d4a017' stroke-width='2'/><circle cx='210' cy='134' r='7' fill='#7fd3f7' stroke='#2a6f8f' stroke-width='2'/> `;
+    if (ids.includes('helmet')) out += `<path d='M206 66 Q210 34 234 32 Q258 34 260 58 Q236 44 206 70 Z' fill='#8a93a6' stroke='#3c4352' stroke-width='2' stroke-linejoin='round'/><path d='M232 34 L232 52' stroke='#d4a017' stroke-width='3' stroke-linecap='round'/> `;
+    if (ids.includes('crown')) out += `<path d='M236 44 L236 30 L243 38 L249 26 L255 38 L262 30 L262 44 Z' fill='#f7d774' stroke='#8a6410' stroke-width='2' stroke-linejoin='round'/> `;
+    return out;
+  }
+
+  function buildSvg() {
+    const c = COLORS.find(x => x.id === state.color) || COLORS[0];
+    const saddle = SADDLES.find(x => x.id === state.saddle) || SADDLES[0];
+    const wingEl = `<g fill='${c.dark}' stroke='${c.dark}' stroke-width='2' stroke-linejoin='round'>${WING_SHAPES[state.wing] || WING_SHAPES.bat}</g>`;
+    const spikes = state.scale === 'spike' ? buildSpikes(c.dark) : '';
+    const blanket = state.accessories.includes('blanket') ? `<path d='M92 116 Q150 98 208 114 L204 152 Q150 168 96 152 Z' fill='#7a2e4a' stroke='#3e1624' stroke-width='2' stroke-linejoin='round'/><path d='M96 152 Q150 168 204 152' fill='none' stroke='#d4a017' stroke-width='3' stroke-dasharray='6 4'/>` : '';
+    return `
+      <defs>
+        <pattern id='pat-fine' width='12' height='12' patternUnits='userSpaceOnUse'><circle cx='6' cy='6' r='4.5' fill='none' stroke='#000' stroke-opacity='.35' stroke-width='1.2'/></pattern>
+        <pattern id='pat-plate' width='22' height='16' patternUnits='userSpaceOnUse'><rect x='1' y='1' width='20' height='14' rx='5' fill='none' stroke='#000' stroke-opacity='.35' stroke-width='1.5'/></pattern>
+        <pattern id='pat-spike' width='20' height='20' patternUnits='userSpaceOnUse'><path d='M10 2 L14 10 L6 10 Z' fill='#000' fill-opacity='.3'/></pattern>
+      </defs>
+      ${wingEl}
+      <g transform='translate(300 0) scale(-1 1)'>${wingEl}</g>
+      <path d='M85 150 C40 170 30 200 15 190 C35 185 45 160 80 140 Z' fill='${c.main}' stroke='${c.dark}' stroke-width='2'/>
+      ${spikes}
+      <ellipse cx='150' cy='135' rx='72' ry='46' fill='${c.main}' stroke='${c.dark}' stroke-width='2'/>
+      <ellipse cx='150' cy='135' rx='72' ry='46' fill='url(#pat-${state.scale})'/>
+      <ellipse cx='150' cy='152' rx='48' ry='22' fill='#f3e3b5' opacity='.85'/>
+      <rect x='115' y='165' width='16' height='34' rx='7' fill='${c.dark}'/>
+      <rect x='167' y='165' width='16' height='34' rx='7' fill='${c.dark}'/>
+      <path d='M185 110 C198 92 204 82 210 70 L242 72 C234 100 224 122 214 146 Z' fill='${c.main}' stroke='${c.dark}' stroke-width='2'/>
+      <path d='M218 44 L222 18 L234 42 Z' fill='${c.dark}'/>
+      <ellipse cx='232' cy='62' rx='30' ry='22' fill='${c.main}' stroke='${c.dark}' stroke-width='2'/>
+      <ellipse cx='232' cy='62' rx='30' ry='22' fill='url(#pat-${state.scale})'/>
+      <path d='M254 56 L284 66 L254 72 Z' fill='${c.dark}'/>
+      <circle cx='240' cy='56' r='6' fill='#fff'/>
+      <circle cx='242' cy='56' r='3' fill='#111'/>
+      ${blanket}
+      ${buildSaddle(saddle)}
+      ${buildAccessories(state.accessories)}`;
+  }
+
+  const WING_SHAPES = {
+    bat: `<path d='M125 120 C95 30 35 20 12 62 C42 60 56 76 63 96 C42 94 26 106 20 126 C52 118 88 128 125 142 Z'/> `,
+    feather: `<path d='M125 118 C100 70 70 50 28 52 C58 66 70 80 74 98 C56 92 40 100 34 116 C62 110 84 120 125 142 Z'/><ellipse cx='30' cy='44' rx='12' ry='5' transform='rotate(-20 30 44)'/><ellipse cx='48' cy='36' rx='12' ry='5' transform='rotate(-10 48 36)'/> `,
+    stub: `<path d='M125 120 C112 92 88 82 66 86 C78 98 84 108 84 122 C98 126 112 132 125 142 Z'/> `
+  };
+
+  function renderSvg() {
+    els.svg.innerHTML = buildSvg();
+    const c = COLORS.find(x => x.id === state.color) || COLORS[0];
+    const parts = [`${c.label} дракон, чешуя “${SCALES.find(s => s.id === state.scale).label.toLowerCase()}”, крылья “${WINGS.find(w => w.id === state.wing).label.toLowerCase()}”`];
+    if (state.saddle !== 'none') parts.push(`седло “${SADDLES.find(s => s.id === state.saddle).label.toLowerCase()}”`);
+    const acc = ACCESSORIES.filter(a => state.accessories.includes(a.id)).map(a => a.label.toLowerCase());
+    if (acc.length) parts.push(acc.join(', '));
+    els.caption.textContent = parts.join(', ') + '.';
+  }
+
+  function buildOptionGroup(title, name, items, type, selected) {
+    const fs = document.createElement('fieldset');
+    const lg = document.createElement('legend');
+    lg.textContent = title;
+    const wrap = document.createElement('div');
+    wrap.className = 'options';
+    items.forEach(item => {
+      const label = document.createElement('label');
+      const input = document.createElement('input');
+      input.type = type;
+      input.name = name;
+      input.value = item.id;
+      input.dataset.group = name;
+      input.disabled = !!item.disabled;
+      input.checked = type === 'checkbox' ? selected.includes(item.id) : selected === item.id;
+      label.append(input, item.label + (item.disabled ? ' (нужен крафт)' : ''));
+      wrap.append(label);
+    });
+    fs.append(lg, wrap);
+    return fs;
+  }
+
+  function renderCustoms() {
+    const owned = state.owned;
+    els.customs.replaceChildren(
+      buildOptionGroup('Верхний цвет', 'color', COLORS, 'radio', state.color),
+      buildOptionGroup('Чешуя', 'scale', SCALES, 'radio', state.scale),
+      buildOptionGroup('Крылья', 'wing', WINGS, 'radio', state.wing),
+      buildOptionGroup('Седло', 'saddle', SADDLES.map(s => ({ ...s, disabled: s.id !== 'none' && !owned.includes(s.id) })), 'radio', state.saddle),
+      buildOptionGroup('Аксессары', 'accessories', ACCESSORIES.map(a => ({ ...a, disabled: !owned.includes(a.id) })), 'checkbox', state.accessories)
+    );
+  }
+
+  function renderBars() {
+    const stats = [['Сытость', state.hunger], ['Силы', state.energy]];
+    els.bars.replaceChildren(...stats.map(([name, value]) => {
+      const row = document.createElement('div');
+      const head = document.createElement('div');
+      head.className = 'bar-head';
+      const n = document.createElement('span');
+      n.textContent = name;
+      const num = document.createElement('span');
+      num.textContent = Math.round(value);
+      head.append(n, num);
+      const track = document.createElement('div');
+      track.className = 'track';
+      track.setAttribute('role', 'progressbar');
+      track.setAttribute('aria-label', name);
+      track.setAttribute('aria-valuemin', '0');
+      track.setAttribute('aria-valuemax', '100');
+      track.setAttribute('aria-valuenow', String(Math.round(value)));
+      const fill = document.createElement('i');
+      fill.style.width = `${value}%`;
+      track.append(fill);
+      row.append(head, track);
+      return row;
+    }));
+    els.best.textContent = `Рекорд высоты: ${state.best} блоков.`;
+  }
+
+  function renderInv() {
+    const keys = Object.keys(state.inv);
+    els.inv.replaceChildren(...GROUPS.flatMap(g => keys.filter(k => ITEMS[k].group === g).map(k => {
+      const li = document.createElement('li');
+      const name = document.createElement('span');
+      name.textContent = label(k);
+      const n = document.createElement('strong');
+      n.textContent = `× ${state.inv[k]}`;
+      li.append(name, n);
+      return li;
+    })));
+    els.invEmpty.hidden = keys.length > 0;
+  }
+
+  function renderFood() {
+    const foods = Object.keys(state.inv).filter(k => ITEMS[k].hunger !== undefined);
+    const prev = els.food.value;
+    els.food.replaceChildren(...foods.map(k => new Option(`${label(k)} × ${state.inv[k]}`, k)));
+    if (foods.includes(prev)) els.food.value = prev;
+    els.eatBtn.disabled = foods.length === 0;
+  }
+
+  function renderRecipes() {
+    els.recipes.replaceChildren(...RECIPES.map(r => {
+      const li = document.createElement('li');
+      const info = document.createElement('div');
+      const name = document.createElement('strong');
+      name.textContent = r.label;
+      const det = document.createElement('div');
+      det.className = 'muted';
+      det.textContent = `${r.station}: ${Object.entries(r.inputs).map(([k, n]) => `${label(k)} ×${n}`).join(', ')}`;
+      info.append(name, det);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'small';
+      btn.dataset.recipe = r.id;
+      const have = !!r.unlock && state.owned.includes(r.unlock);
+      btn.textContent = have ? 'Есть' : 'Сделать';
+      btn.disabled = !canCraft(r);
+      li.append(info, btn);
+      return li;
+    }));
+  }
+
+  function renderLog() {
+    els.log.replaceChildren(...state.log.map(entry => {
+      const li = document.createElement('li');
+      const time = document.createElement('time');
+      time.dateTime = new Date(entry.t).toISOString();
+      time.textContent = new Date(entry.t).toLocaleString('ru-RU');
+      const text = document.createElement('span');
+      text.textContent = entry.text;
+      li.append(time, text);
+      return li;
+    }));
+    els.empty.hidden = state.log.length > 0;
+  }
+
+  function renderAll() {
+    renderSvg();
+    renderCustoms();
+    renderBars();
+    renderInv();
+    renderFood();
+    renderRecipes();
+    renderLog();
+  }
+
+  els.customs.addEventListener('change', event => {
+    const input = event.target;
+    const group = input.dataset.group;
+    if (!group) return;
+    commit(() => {
+      if (group === 'accessories') {
+        const picked = [...els.customs.querySelectorAll('input[data-group=accessories]:checked')].map(i => i.value);
+        state.accessories = picked.filter(a => state.owned.includes(a));
+      } else {
+        state[group] = input.value;
+      }
+      addLog(`Облик: ${input.closest('fieldset').querySelector('legend').textContent.toLowerCase()} — ${input.parentElement.textContent.trim()}.`);
+    });
+    setMessage('Облик обновлен.', false);
+  });
+
+  document.querySelector('.actions').addEventListener('click', event => {
+    const button = event.target.closest('button[data-act]');
+    if (!button) return;
+    const text = commit(() => {
+      const t = ACTS[button.dataset.act]();
+      if (t) addLog(t);
+      return t;
+    });
+    setMessage(text, false);
+  });
+
+  els.eatBtn.addEventListener('click', () => {
+    const text = commit(() => {
+      const t = ACTS.eat();
+      if (t) addLog(t);
+      return t;
+    });
+    setMessage(text || 'Еды нет. Похотась, копать или жарить мясо.', !text);
+  });
+
+  els.recipes.addEventListener('click', event => {
+    const btn = event.target.closest('button[data-recipe]');
+    if (!btn) return;
+    const r = RECIPES.find(x => x.id === btn.dataset.recipe);
+    if (!r) return;
+    const text = commit(() => {
+      const t = craft(r);
+      if (t) addLog(t);
+      return t;
+    });
+    setMessage(text || 'Не хватает материалов.', !text);
+  });
+
+  els.noteForm.addEventListener('submit', event => {
+    event.preventDefault();
+    const text = els.noteText.value.trim();
+    if (!text) return;
+    commit(() => addLog(`Заметка: ${text}`));
+    els.noteText.value = '';
+  });
+
+  els.clearLog.addEventListener('click', () => {
+    if (!confirm('Очистить журнал логова?')) return;
+    state.log = [];
+    commit(() => {});
+  });
+
+  BIOMES.forEach(b => els.biome.append(new Option(b.label, b.id)));
+  applyDecay();
+  save();
+  renderAll();
+  setInterval(() => commit(() => {}), 30000);
+
+  const dbMsg = $('dbMsg');
+  function setDbMsg(text, isError) {
+    if (!dbMsg) return;
+    dbMsg.textContent = text;
+    dbMsg.className = isError ? 'msg error' : 'msg';
+  }
+
+  $('loadDbBtn').addEventListener('click', () => {
+    const text = commit(() => loadDB());
+    const bad = /-не|ошиб|пуста/.test(text);
+    setMessage(text, bad);
+    setDbMsg(text, bad);
+  });
+  $('loadFileBtn').addEventListener('click', () => $('dbFile').click());
+  $('dbFile').addEventListener('change', async event => {
+    const file = event.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      if (!parsed || !Array.isArray(parsed.items) || !Array.isArray(parsed.recipes) || !parsed.hunt || !parsed.mine) {
+        const bad = 'Формат файла не подходит: нужны разделы items, recipes, hunt и mine.';
+        setMessage(bad, true);
+        setDbMsg(bad, true);
+        return;
+      }
+      ITEMS = {};
+      parsed.items.forEach(it => { if (it.id && it.label) ITEMS[it.id] = { label: it.label, group: it.group || 'Материалы', hunger: it.hunger, energy: it.energy }; });
+      RECIPES = parsed.recipes.map(r => ({ id: r.id || r.label, station: r.station || 'Печь', label: r.label || r.id, inputs: r.inputs || {}, out: r.out || undefined, unlock: r.unlock || undefined })).filter(r => r.id && r.label);
+      HUNT = {}; parsed.hunt.forEach((list, bi) => { if (Array.isArray(list)) HUNT[bi] = list; });
+      MINE = {}; parsed.mine.forEach((list, bi) => { if (Array.isArray(list)) MINE[bi] = list; });
+      const allBiomes = new Set([...Object.keys(HUNT), ...Object.keys(MINE)]);
+      allBiomes.forEach(b => { if (!BIOMES.find(x => x.id === b)) BIOMES.push({ id: b, label: b }); });
+      const inv = {};
+      for (const [k, v] of Object.entries(state.inv || {})) if (ITEMS[k] && v > 0) inv[k] = v;
+      state.inv = inv;
+      state.owned = (state.owned || []).filter(id => RECIPES.some(r => r.unlock === id));
+      state.accessories = (state.accessories || []).filter(a => state.owned.includes(a));
+      if (state.saddle !== 'none' && !state.owned.includes(state.saddle)) state.saddle = 'none';
+      const msg = commit(() => 'Файл загружен: ' + parsed.items.length + ' предметов, ' + parsed.recipes.length + ' рецептов.');
+      setMessage(msg, false);
+      setDbMsg(msg, false);
+    } catch (e) {
+      const bad = 'Ошибка чтения файла: ' + e.message;
+      setMessage(bad, true);
+      setDbMsg(bad, true);
+    }
+    event.target.value = '';
+  });
+})();
+</script>
+</body>
+</html>
